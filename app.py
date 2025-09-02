@@ -1,3 +1,6 @@
+@app.route("/", methods=["GET"])
+def health():
+    return "OK", 200
 from flask import Flask, request, jsonify, send_file
 import yt_dlp
 import os, glob
@@ -54,3 +57,4 @@ def download_mp4():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "8000")), debug=False)
+    
