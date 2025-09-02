@@ -1,16 +1,12 @@
-@app.route("/", methods=["GET"])
-def health():
-    return "OK", 200
 from flask import Flask, request, jsonify, send_file
 import yt_dlp
-import os, glob
+import os
+import glob
+import uuid
 
 app = Flask(__name__)
 
-# Azure File Share mount se cookies uthayega
-COOKIE_PATH = os.getenv("COOKIE_PATH", "/app/data/cookies.txt")
-
-@app.get("/")
+@app.route("/", methods=["GET"])
 def health():
     return "OK", 200
 
@@ -21,40 +17,26 @@ def download_mp4():
     if not url:
         return jsonify({"error": "Missing 'url'"}), 400
 
-    # /tmp pe likho (container ephemeral storage)
-    outtmpl = "/tmp/%(id)s.%(ext)s"
+    tmp = f"/tmp/{uuid.uuid4()}.mp4"
+    # cookies path (optional): mount karo to env se UTHA sakta hai
+    COOKIE_PATH = os.getenv("COOKIE_PATH", "/app/data/cookies.txt")
 
-    # 1080p tak best video + best audio → merge → mp4
     ydl_opts = {
         "quiet": True,
         "noplaylist": True,
-        "cookiefile": COOKIE_PATH,                # file optional hai, hogi to use hogi
-        "format": "bv*[height<=1080]+ba/best[ext=mp4]",
+        "outtmpl": tmp,
         "merge_output_format": "mp4",
-        "outtmpl": outtmpl,
-        "nocheckcertificate": True,
-        "geo_bypass": True,
+        "cookiefile": COOKIE_PATH if os.path.exists(COOKIE_PATH) else None,
+        # 1080p tak best video+audio ko merge karke mp4
+        "format": "bv*[height<=1080][ext=mp4]+ba/b[height<=1080][ext=mp4]/bv*+ba/b",
     }
+
+    # None values hata do
+    ydl_opts = {k: v for k, v in ydl_opts.items() if v is not None}
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            vid_id = info.get("id")
-
-        files = []
-        if vid_id:
-            files += glob.glob(f"/tmp/{vid_id}*.mp4")
-        files += glob.glob("/tmp/*.mp4")
-        if not files:
-            return jsonify({"error": "MP4 not found after merge"}), 500
-
-        filepath = max(files, key=os.path.getmtime)
-        filename = os.path.basename(filepath)
-        return send_file(filepath, mimetype="video/mp4",
-                         as_attachment=True, download_name=filename)
+            ydl.download([url])
+        return send_file(tmp, as_attachment=True, download_name="video_1080p.mp4")
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "8000")), debug=False)
-    
